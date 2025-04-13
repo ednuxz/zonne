@@ -1,0 +1,27 @@
+# Habilitar el motor de reescritura
+RewriteEngine On
+
+# Establecer directorio base
+RewriteBase /
+
+# No aplicar reglas a archivos o directorios existentes
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Redirigir todas las solicitudes que coincidan con el patrón proyecto/ruta al router.php
+RewriteRule ^([^/]+)/([^/]+)/?$ router.php [L,QSA]
+
+# Manejar solicitudes OPTIONS para CORS
+RewriteRule .* - [E=HTTP_ORIGIN:%{HTTP:ORIGIN}]
+
+# Permitir acceso a archivos y directorios existentes
+<IfModule mod_negotiation.c>
+    Options -MultiViews
+</IfModule>
+
+# Configuración de CORS
+<IfModule mod_headers.c>
+    Header set Access-Control-Allow-Origin "*"
+    Header set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+    Header set Access-Control-Allow-Headers "Content-Type, Authorization"
+</IfModule>
