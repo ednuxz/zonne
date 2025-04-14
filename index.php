@@ -45,7 +45,6 @@ if ($uri !== '/' && $uri !== '') {
     <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css">
     <link rel="stylesheet" href="assets/css/Navbar-With-Button-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/default.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/matchbrackets.min.js"></script>
@@ -59,9 +58,10 @@ if ($uri !== '/' && $uri !== '') {
 <body>
     <div class="container">
         <nav class="navbar navbar-expand-md bg-body py-3" style="margin-top: 19px;">
-            <div class="container"><a class="navbar-brand d-flex align-items-center" href="#"><span class="bs-icon-sm bs-icon-rounded bs-icon-primary d-flex justify-content-center align-items-center me-2 bs-icon" style="background: var(--bs-black);"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16" class="bi bi-code">
+            <div class="container"><a class="navbar-brand d-flex align-items-center" href="/"><span class="bs-icon-sm bs-icon-rounded bs-icon-primary d-flex justify-content-center align-items-center me-2 bs-icon" style="background: var(--bs-black);"><svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16" class="bi bi-code">
                             <path d="M5.854 4.854a.5.5 0 1 0-.708-.708l-3.5 3.5a.5.5 0 0 0 0 .708l3.5 3.5a.5.5 0 0 0 .708-.708L2.707 8l3.147-3.146zm4.292 0a.5.5 0 0 1 .708-.708l3.5 3.5a.5.5 0 0 1 0 .708l-3.5 3.5a.5.5 0 0 1-.708-.708L13.293 8l-3.147-3.146z"></path>
                         </svg></span><span>ZONNE</span></a></div>
+            <p><a href="#" style="margin-top: 5px" data-bs-toggle="modal" data-bs-target="#myModal">Documentacion</a></p>
         </nav>
     </div>
     <div class="container">
@@ -118,6 +118,128 @@ if ($uri !== '/' && $uri !== '') {
             </div>
         </div>
     </div>
+
+
+    <div class="modal fade" id="myModal" tabindex="-1" aria-labelledby="myModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="myModalLabel">Documentación del Método GET en ZONNE</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>ZONNE ofrece un método <strong>GET</strong> enriquecido con numerosas funciones que
+                        facilitan la consulta, filtrado y presentación de datos.</p>
+                    <p><strong>Base URL:</strong> <code>https://api.zoneapi.cloud/proyecto/endpoint</code></p>
+                    <hr>
+                    <h6>Características:</h6>
+                    <ul>
+                        <li>
+                            <strong>Filtrado Básico:</strong> Filtra resultados pasando parámetros directamente
+                            en la URL.
+                            <ul>
+                                <li><code>?id=5</code>: Obtener elemento con id=5.</li>
+                                <li><code>?precio=100&nombre=Laptop</code>: Filtrar elementos con precio=100 y
+                                    nombre=Laptop.
+                                </li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Filtrado en Propiedades Anidadas:</strong> Accede a propiedades dentro de objetos usando notación de punto.
+                            <ul>
+                                <li><code>?user.name=John</code>: Filtrar elementos donde user.name sea igual a "John".</li>
+                                <li><code>?spot.trick_name=360 Flip</code>: Filtrar elementos donde spot.trick_name sea igual a "360 Flip".</li>
+                                <li><code>?filter[user.id]=1&operator[user.id]=eq</code>: Filtrar elementos donde user.id sea igual a 1.</li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Filtrado Avanzado:</strong> Utiliza operadores para consultas más complejas.
+                            <ul>
+                                <li><code>?filter[precio]=100&operator[precio]=gt</code>: Productos con precio
+                                    mayor a 100.
+                                </li>
+                                <li><code>?filter[nombre]=mac&operator[nombre]=contains</code>: Productos cuyo
+                                    nombre contenga 'mac'.
+                                </li>
+                                <li><code>?filter[categoria]=1,2,3&operator[categoria]=in</code>: Productos en
+                                    las categorías 1, 2 o 3.
+                                </li>
+                            </ul>
+                            <small><strong>Operadores:</strong> eq, neq, gt, gte, lt, lte, contains, startswith,
+                                endswith, in.</small>
+                        </li>
+                        <li>
+                            <strong>Paginación:</strong> Divide grandes conjuntos de datos en páginas
+                            manejables.
+                            <ul>
+                                <li><code>?page=1&limit=10</code>: Primera página con 10 elementos por página.
+                                </li>
+                                <li><code>?page=2&limit=25</code>: Segunda página con 25 elementos por página.
+                                </li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Ordenamiento:</strong> Ordena los resultados por un campo específico.
+                            <ul>
+                                <li><code>?sort=precio</code>: Ordenar por precio (ascendente por defecto).</li>
+                                <li><code>?sort=nombre&direction=desc</code>: Ordenar por nombre descendente.
+                                </li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Selección de Campos:</strong> Solicita solo los campos específicos que
+                            necesitas.
+                            <ul>
+                                <li><code>?fields=id,nombre,precio</code>: Devuelve solo los campos id, nombre y
+                                    precio.
+                                </li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Búsqueda de Texto:</strong> Busca términos en campos específicos.
+                            <ul>
+                                <li><code>?search=smartphone&search_fields=nombre,descripcion</code>: Busca
+                                    'smartphone' en los campos nombre y descripción.
+                                </li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Formatos de Respuesta:</strong> Obtén los datos en diferentes formatos.
+                            <ul>
+                                <li><code>?format=json</code>: Formato JSON (predeterminado).</li>
+                                <li><code>?format=xml</code>: Formato XML.</li>
+                                <li><code>?format=csv</code>: Formato CSV (descarga).</li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Combinación de Características:</strong> Todas las características se pueden
+                            combinar para consultas poderosas.
+                            <ul>
+                                <li><code>?filter[precio]=50&operator[precio]=gt&sort=precio&page=1&limit=10&fields=id,nombre,precio&format=json</code>:
+                                    Productos con precio > 50, ordenados por precio, primera página con 10
+                                    elementos, mostrando id, nombre y precio en formato JSON.
+                                </li>
+                            </ul>
+                        </li>
+                        <li>
+                            <strong>Información del Esquema:</strong> Obtiene información sobre la estructura de
+                            los datos.
+                            <ul>
+                                <li><code>?_schema=true</code>: Muestra la estructura del endpoint con tipos de
+                                    datos.
+                                </li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
     <script src="assets/js/jquery.min.js"></script>
     <script src="assets/bootstrap/js/bootstrap.min.js"></script>
     <script src="assets/js/api-url-manager.js"></script>

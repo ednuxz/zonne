@@ -182,6 +182,92 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Mostrar mensaje
         showMessage(`Endpoint ${method} /${projectName}/${route} cargado correctamente`);
+        
+        // Mostrar información adicional del endpoint en el área de contenido
+        fetch(`/api/${projectName}/${route}.json`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`No se encontró el endpoint ${projectName}/${route}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Mostrar información adicional en el área de contenido
+                if (contentRequestDiv && contentRequestDiv.querySelector('.col-xl-10')) {
+                    // Limpiar contenido anterior
+                    contentRequestDiv.querySelector('.col-xl-10').innerHTML = '';
+                    
+                    // Crear título
+                    const titleElement = document.createElement('h4');
+                    titleElement.textContent = `Endpoint ${method} /${projectName}/${route}`;
+                    titleElement.className = 'mb-3';
+                    
+                    // Crear elemento para mostrar el JSON
+                    const preElement = document.createElement('pre');
+                    preElement.className = 'bg-light p-3 rounded';
+                    preElement.style.maxHeight = '400px';
+                    preElement.style.overflow = 'auto';
+                    preElement.textContent = JSON.stringify(data.content, null, 2);
+                    
+                    // Agregar elementos al contenedor
+                    contentRequestDiv.querySelector('.col-xl-10').appendChild(titleElement);
+                    contentRequestDiv.querySelector('.col-xl-10').appendChild(preElement);
+                    
+                    // Analizar el JSON para mostrar opciones de filtrado
+                    const jsonContent = data.content;
+                    if (Array.isArray(jsonContent) && jsonContent.length > 0 && typeof jsonContent[0] === 'object') {
+                        // Extraer las claves del primer objeto del array
+                        const keys = Object.keys(jsonContent[0]);
+                        
+                        if (keys.length > 0) {
+                            // Crear contenedor para ejemplos de filtros
+                            const filterExamplesContainer = document.createElement('div');
+                            filterExamplesContainer.className = 'filter-examples mt-3';
+                            
+                            // Crear título para los ejemplos
+                            const filterTitleElement = document.createElement('h5');
+                            filterTitleElement.textContent = 'Ejemplos de filtros:';
+                            filterExamplesContainer.appendChild(filterTitleElement);
+                            
+                            // Seleccionar hasta 2 claves para los ejemplos
+                            const exampleKeys = keys.slice(0, 2);
+                            
+                            // Crear ejemplos de filtros
+                            exampleKeys.forEach(key => {
+                                const exampleElement = document.createElement('div');
+                                exampleElement.className = 'filter-example mb-2';
+                                
+                                const baseUrl = window.location.origin;
+                                const exampleUrl = `${baseUrl}/${projectName}/${route}?${key}=valor`;
+                                exampleElement.innerHTML = `
+                                    <code>${exampleUrl}</code>
+                                    <button class="btn btn-sm btn-outline-secondary ms-2" onclick="navigator.clipboard.writeText('${exampleUrl}')">
+                                        <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                            <path d="M363.5-292q-24.44 0-40.97-16.53Q306-325.06 306-349.5v-416q0-24.44 16.53-40.97Q339.06-823 363.5-823h296q24.44 0 40.97 16.53Q717-789.94 717-765.5v416q0 24.44-16.53 40.97Q683.94-292 659.5-292h-296Zm-103 103q-24.44 0-40.97-16.53Q203-222.06 203-246.5V-688h25.5v441.5q0 12 10 22t22 10H582v25.5H260.5Z"/>
+                                        </svg>
+                                    </button>
+                                `;
+                                
+                                filterExamplesContainer.appendChild(exampleElement);
+                            });
+                            
+                            // Añadir ejemplos al contenedor de respuesta
+                            contentRequestDiv.querySelector('.col-xl-10').appendChild(filterExamplesContainer);
+                        }
+                    }
+                    
+                    // Agregar botón para volver a la lista
+                    const backButton = document.createElement('button');
+                    backButton.className = 'btn btn-secondary mt-3';
+                    backButton.textContent = 'Volver a la lista';
+                    backButton.addEventListener('click', () => searchEndpoints());
+                    contentRequestDiv.querySelector('.col-xl-10').appendChild(backButton);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showMessage(`Error al obtener el contenido del endpoint: ${error.message}`, true);
+            });
     }
     
     // Función para ver el contenido de un endpoint
@@ -202,17 +288,35 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(data => {
                 // Si se debe cargar al editor
                 if (loadToEditor) {
-                    // Obtener el editor CodeMirror
-                    const cmElement = document.querySelector('.CodeMirror');
-                    if (cmElement && cmElement.CodeMirror) {
-                        // Formatear el JSON y establecerlo en el editor
-                        cmElement.CodeMirror.setValue(JSON.stringify(data.content, null, 2));
-                    } else {
-                        // Si no hay editor, usar el textarea
+                    // Intentar obtener el editor CodeMirror de manera más segura
+                    try {
+                        // Obtener el editor CodeMirror
+                        const cmElement = document.querySelector('.CodeMirror');
+                        if (cmElement && cmElement.CodeMirror) {
+                            // Formatear el JSON y establecerlo en el editor
+                            cmElement.CodeMirror.setValue(JSON.stringify(data.content, null, 2));
+                        } else {
+                            // Si no hay editor, usar el textarea
+                            const textarea = document.querySelector('textarea.form-control');
+                            if (textarea) {
+                                textarea.value = JSON.stringify(data.content, null, 2);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error al acceder al editor CodeMirror:', error);
+                        // Usar el textarea como fallback
                         const textarea = document.querySelector('textarea.form-control');
                         if (textarea) {
                             textarea.value = JSON.stringify(data.content, null, 2);
                         }
+                    }
+                    
+                    // Actualizar la URL mostrada en el elemento pathApi
+                    const apiPathDisplay = document.getElementById('pathApi');
+                    if (apiPathDisplay) {
+                        // Construir la URL completa con el nombre del proyecto y la ruta
+                        const baseUrl = window.location.origin;
+                        apiPathDisplay.textContent = `${baseUrl}/${projectName}/${route}`;
                     }
                 } else {
                     // Mostrar el contenido en el área de información
@@ -235,6 +339,49 @@ document.addEventListener('DOMContentLoaded', function() {
                         // Agregar elementos al contenedor
                         contentRequestDiv.querySelector('.col-xl-10').appendChild(titleElement);
                         contentRequestDiv.querySelector('.col-xl-10').appendChild(preElement);
+                        
+                        // Analizar el JSON para mostrar opciones de filtrado
+                        const jsonContent = data.content;
+                        if (Array.isArray(jsonContent) && jsonContent.length > 0 && typeof jsonContent[0] === 'object') {
+                            // Extraer las claves del primer objeto del array
+                            const keys = Object.keys(jsonContent[0]);
+                            
+                            if (keys.length > 0) {
+                                // Crear contenedor para ejemplos de filtros
+                                const filterExamplesContainer = document.createElement('div');
+                                filterExamplesContainer.className = 'filter-examples mt-3';
+                                
+                                // Crear título para los ejemplos
+                                const filterTitleElement = document.createElement('h5');
+                                filterTitleElement.textContent = 'Ejemplos de filtros:';
+                                filterExamplesContainer.appendChild(filterTitleElement);
+                                
+                                // Seleccionar hasta 2 claves para los ejemplos
+                                const exampleKeys = keys.slice(0, 2);
+                                
+                                // Crear ejemplos de filtros
+                                exampleKeys.forEach(key => {
+                                    const exampleElement = document.createElement('div');
+                                    exampleElement.className = 'filter-example mb-2';
+                                    
+                                    const baseUrl = window.location.origin;
+                                    const exampleUrl = `${baseUrl}/${projectName}/${route}?${key}=valor`;
+                                    exampleElement.innerHTML = `
+                                        <code>${exampleUrl}</code>
+                                        <button class="btn btn-sm btn-outline-secondary ms-2" onclick="navigator.clipboard.writeText('${exampleUrl}')">
+                                            <svg xmlns="http://www.w3.org/2000/svg" height="16px" viewBox="0 -960 960 960" width="16px" fill="currentColor">
+                                                <path d="M363.5-292q-24.44 0-40.97-16.53Q306-325.06 306-349.5v-416q0-24.44 16.53-40.97Q339.06-823 363.5-823h296q24.44 0 40.97 16.53Q717-789.94 717-765.5v416q0 24.44-16.53 40.97Q683.94-292 659.5-292h-296Zm-103 103q-24.44 0-40.97-16.53Q203-222.06 203-246.5V-688h25.5v441.5q0 12 10 22t22 10H582v25.5H260.5Z"/>
+                                            </svg>
+                                        </button>
+                                    `;
+                                    
+                                    filterExamplesContainer.appendChild(exampleElement);
+                                });
+                                
+                                // Añadir ejemplos al contenedor de respuesta
+                                contentRequestDiv.querySelector('.col-xl-10').appendChild(filterExamplesContainer);
+                            }
+                        }
                         
                         // Agregar botón para volver a la lista
                         const backButton = document.createElement('button');

@@ -84,6 +84,20 @@ if (count($segments) >= 2) {
 
             // Obtener el contenido del endpoint
             $content = $endpointData['content'];
+            
+            // Verificar si hay una estructura anidada con content.content
+            if (isset($content['content'])) {
+                // Si content.content es un array, usarlo directamente
+                if (is_array($content['content'])) {
+                    $content = $content['content'];
+                    error_log("Estructura anidada detectada: content.content es array");
+                }
+                // Si content.content tiene otra estructura anidada (content.content.content)
+                else if (isset($content['content']['content']) && is_array($content['content']['content'])) {
+                    $content = $content['content']['content'];
+                    error_log("Estructura doblemente anidada detectada: content.content.content");
+                }
+            }
 
             // Verificar si se solicita información sobre la estructura
             if (isset($_GET['_schema']) && $_GET['_schema'] === 'true') {
@@ -105,17 +119,48 @@ if (count($segments) >= 2) {
                 // Aplicar filtros al contenido
                 $content = applyFilters($content, $filters, $operators);
             }
-            // Verificar si hay parámetros de consulta simples (ej: ?id=2 o ?nombre="Plátano")
+            // Verificar si hay parámetros de consulta simples (ej: ?id=2 o ?nombre="Plátano" o ?user.username=breat_sk8)
             else if (!empty($_GET)) {
                 // Convertir parámetros simples al formato de filtro
                 $simpleFilters = [];
                 $simpleOperators = [];
 
+                // Primero, buscar parámetros con notación de punto en la URL original
+                $queryString = $_SERVER['QUERY_STRING'];
+                $dotParams = [];
+                
+                // Extraer parámetros con notación de punto de la URL original
+                if (preg_match_all('/([^&=]+\.[^&=]+)=([^&]*)/', $queryString, $matches, PREG_SET_ORDER)) {
+                    foreach ($matches as $match) {
+                        $dotParams[urldecode($match[1])] = urldecode($match[2]);
+                    }
+                }
+                
+                // Procesar todos los parámetros GET normales
                 foreach ($_GET as $field => $value) {
                     // Ignorar parámetros especiales
                     if (!in_array($field, ['_schema', 'page', 'limit', 'sort', 'direction', 'fields', 'search', 'search_fields', 'format'])) {
                         // Registrar el parámetro para depuración
                         error_log("Parámetro de filtro simple: $field = $value");
+                        // Decodificar el valor si está codificado en URL
+                        $decodedValue = urldecode($value);
+                        // Eliminar comillas si están presentes
+                        if (preg_match('/^"(.*)"$/', $decodedValue, $matches)) {
+                            $decodedValue = $matches[1];
+                        }
+                        $simpleFilters[$field] = $decodedValue;
+                    }
+                }
+                
+                // Añadir los parámetros con notación de punto
+                foreach ($dotParams as $field => $value) {
+                    // Ignorar parámetros especiales
+                    if (strpos($field, '.') !== false && !in_array($field, ['_schema', 'page', 'limit', 'sort', 'direction', 'fields', 'search', 'search_fields', 'format'])) {
+                        error_log("Parámetro con notación de punto: $field = $value");
+                        // Eliminar comillas si están presentes
+                        if (preg_match('/^"(.*)"$/', $value, $matches)) {
+                            $value = $matches[1];
+                        }
                         $simpleFilters[$field] = $value;
                     }
                 }
@@ -329,13 +374,43 @@ function getValueType($value) {
     return 'unknown';
 }
 
+// Función para obtener un valor anidado usando notación de punto
+function getNestedValue($item, $field) {
+    // Registrar para depuración
+    error_log("Buscando campo: $field en item: " . json_encode($item));
+    
+    // Si el campo no contiene puntos, es un acceso directo
+    if (strpos($field, '.') === false) {
+        return isset($item[$field]) ? $item[$field] : null;
+    }
+    
+    // Si contiene puntos, navegar por la estructura anidada
+    $parts = explode('.', $field);
+    $current = $item;
+    
+    foreach ($parts as $part) {
+        if (!isset($current[$part])) {
+            error_log("Parte no encontrada: $part en la ruta: $field");
+            return null; // Si alguna parte de la ruta no existe, retornar null
+        }
+        $current = $current[$part];
+    }
+    
+    error_log("Valor encontrado para $field: " . json_encode($current));
+    return $current;
+}
+
 // Función para aplicar filtros
 function applyFilters($content, $filters, $operators = []) {
     // Si no es un array, no podemos filtrar
     if (!is_array($content)) {
         return $content;
     }
-
+    
+    // Registrar para depuración
+    error_log("Aplicando filtros: " . json_encode($filters));
+    error_log("Estructura de contenido: " . json_encode(array_keys($content)));
+    
     // Si es un array asociativo (objeto) en lugar de una lista, convertirlo a lista
     if (!isset($content[0]) && count($content) > 0) {
         $content = [$content];
@@ -349,15 +424,18 @@ function applyFilters($content, $filters, $operators = []) {
         foreach ($filters as $field => $value) {
             // Obtener el operador, por defecto 'eq' (igual)
             $operator = isset($operators[$field]) ? $operators[$field] : 'eq';
-
+            
+            // Obtener el valor del campo, soportando notación de punto para acceso anidado
+            $fieldValue = getNestedValue($item, $field);
+            
             // Si el campo no existe en el item, no hay coincidencia
-            if (!isset($item[$field])) {
+            if ($fieldValue === null) {
                 $matchesAllFilters = false;
                 break;
             }
 
             // Aplicar el operador correspondiente
-            $matches = applyOperator($item[$field], $value, $operator);
+            $matches = applyOperator($fieldValue, $value, $operator);
 
             if (!$matches) {
                 $matchesAllFilters = false;
