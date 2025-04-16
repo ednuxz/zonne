@@ -97,10 +97,33 @@ document.addEventListener('DOMContentLoaded', function() {
                 deleteButton.textContent = 'Borrar';
                 deleteButton.addEventListener('click', () => deleteEndpoint(projectName, endpoint.route));
                 
-                // Agregar botones a la celda de acciones
-                actionsCell.appendChild(loadButton);
-                actionsCell.appendChild(viewButton);
-                actionsCell.appendChild(deleteButton);
+                // Selector de código de estado HTTP
+                const statusCodeContainer = document.createElement('div');
+                statusCodeContainer.className = 'mt-2 d-flex align-items-center';
+                
+                const statusLabel = document.createElement('small');
+                statusLabel.className = 'me-2';
+                statusLabel.textContent = 'Estado HTTP:';
+                statusCodeContainer.appendChild(statusLabel);
+                
+                // Obtener el código de estado actual (por defecto 200)
+                const currentStatusCode = endpoint.status_code || 200;
+                
+                // Crear selector de código de estado usando el StatusCodeManager
+                const statusCodeSelector = window.statusCodeManager.createStatusCodeSelector(
+                    currentStatusCode,
+                    (newCode) => updateEndpointStatusCode(projectName, endpoint.route, newCode)
+                );
+                statusCodeContainer.appendChild(statusCodeSelector);
+                
+                // Añadir el contenedor del selector a la celda de acciones
+                const actionsWrapper = document.createElement('div');
+                actionsWrapper.appendChild(loadButton);
+                actionsWrapper.appendChild(viewButton);
+                actionsWrapper.appendChild(deleteButton);
+                
+                actionsCell.appendChild(actionsWrapper);
+                actionsCell.appendChild(statusCodeContainer);
                 
                 // Agregar celdas a la fila
                 row.appendChild(methodCell);
@@ -183,8 +206,14 @@ document.addEventListener('DOMContentLoaded', function() {
         // Mostrar mensaje
         showMessage(`Endpoint ${method} /${projectName}/${route} cargado correctamente`);
         
-        // Mostrar información adicional del endpoint en el área de contenido
-        fetch(`/api/${projectName}/${route}.json`)
+
+        fetch(`/api/${projectName}/${route}_${method}.json`)
+            .then(response => {
+                if (!response.ok) {
+                    return fetch(`/api/${projectName}/${route}.json`);
+                }
+                return response;
+            })
             .then(response => {
                 if (!response.ok) {
                     throw new Error(`No se encontró el endpoint ${projectName}/${route}`);
@@ -192,44 +221,36 @@ document.addEventListener('DOMContentLoaded', function() {
                 return response.json();
             })
             .then(data => {
-                // Mostrar información adicional en el área de contenido
                 if (contentRequestDiv && contentRequestDiv.querySelector('.col-xl-10')) {
-                    // Limpiar contenido anterior
                     contentRequestDiv.querySelector('.col-xl-10').innerHTML = '';
-                    
-                    // Crear título
+
                     const titleElement = document.createElement('h4');
                     titleElement.textContent = `Endpoint ${method} /${projectName}/${route}`;
                     titleElement.className = 'mb-3';
-                    
-                    // Crear elemento para mostrar el JSON
+
                     const preElement = document.createElement('pre');
                     preElement.className = 'bg-light p-3 rounded';
                     preElement.style.maxHeight = '400px';
                     preElement.style.overflow = 'auto';
                     preElement.textContent = JSON.stringify(data.content, null, 2);
-                    
-                    // Agregar elementos al contenedor
+
                     contentRequestDiv.querySelector('.col-xl-10').appendChild(titleElement);
                     contentRequestDiv.querySelector('.col-xl-10').appendChild(preElement);
-                    
-                    // Analizar el JSON para mostrar opciones de filtrado
+
                     const jsonContent = data.content;
                     if (Array.isArray(jsonContent) && jsonContent.length > 0 && typeof jsonContent[0] === 'object') {
-                        // Extraer las claves del primer objeto del array
                         const keys = Object.keys(jsonContent[0]);
                         
                         if (keys.length > 0) {
-                            // Crear contenedor para ejemplos de filtros
                             const filterExamplesContainer = document.createElement('div');
                             filterExamplesContainer.className = 'filter-examples mt-3';
                             
-                            // Crear título para los ejemplos
+        
                             const filterTitleElement = document.createElement('h5');
                             filterTitleElement.textContent = 'Ejemplos de filtros:';
                             filterExamplesContainer.appendChild(filterTitleElement);
                             
-                            // Seleccionar hasta 2 claves para los ejemplos
+                         
                             const exampleKeys = keys.slice(0, 2);
                             
                             // Crear ejemplos de filtros
@@ -274,7 +295,21 @@ document.addEventListener('DOMContentLoaded', function() {
     function viewEndpointContent(projectName, route, loadToEditor = false) {
         // Realizar petición AJAX para obtener el contenido del endpoint
         // El projectName ya viene normalizado de la función searchEndpoints
-        fetch(`/api/${projectName}/${route}.json`)
+        
+        // Primero intentar con el formato específico del método (GET, POST, etc.)
+        // Obtener el método seleccionado actualmente
+        const methodSelect = document.querySelector('.form-select');
+        const selectedMethod = methodSelect ? methodSelect.value : 'GET';
+        
+        // Intentar primero con el archivo específico del método
+        fetch(`/api/${projectName}/${route}_${selectedMethod}.json`)
+            .then(response => {
+                if (!response.ok) {
+                    // Si no se encuentra, intentar con el formato genérico
+                    return fetch(`/api/${projectName}/${route}.json`);
+                }
+                return response;
+            })
             .then(response => {
                 if (!response.ok) {
                     // Proporcionar un mensaje de error más descriptivo basado en el código de estado
@@ -433,6 +468,28 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Error:', error);
             showMessage(`Error al eliminar el endpoint: ${error.message}`, true);
         });
+    }
+    
+    // Función para actualizar el código de estado HTTP de un endpoint
+    function updateEndpointStatusCode(projectName, route, statusCode) {
+        // Mostrar indicador de carga
+        showMessage(`Actualizando código de estado a ${statusCode}...`);
+        
+        // Llamar al método del StatusCodeManager para actualizar el código
+        window.statusCodeManager.updateEndpointStatusCode(projectName, route, statusCode)
+            .then(data => {
+                swal.fire({
+                    title: 'Código de estado actualizado',
+                    text: `El código de estado del endpoint ${route} ha sido actualizado a ${statusCode} (${window.statusCodeManager.getStatusCodeText(statusCode)})`,
+                    icon: 'success', 
+                })
+                $('#searchProjectEndpoints').click(); // Volver a cargar la lista de endpoints
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showMessage(`Error al actualizar el código de estado: ${error.message}`, true);
+            });
+
     }
     
     // Función para normalizar el nombre del proyecto (reemplazar espacios por guiones)

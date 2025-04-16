@@ -26,13 +26,18 @@ if (!is_dir($cacheDir)) {
 
 // Configuración de caché
 $cacheEnabled = true;
-$cacheTTL = 60; // segundos
+$cacheTTL = 1; // segundos
 
 // Obtener el cuerpo de la solicitud para métodos POST, PUT, DELETE
 $requestBody = null;
 if (in_array($_SERVER['REQUEST_METHOD'], ['POST', 'PUT', 'DELETE'])) {
     $requestBody = file_get_contents('php://input');
     error_log("Cuerpo de la solicitud: " . $requestBody);
+    
+    // Para solicitudes POST con Content-Type application/json, usar el cuerpo JSON en lugar de $_POST
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['CONTENT_TYPE']) && strpos($_SERVER['CONTENT_TYPE'], 'application/json') !== false) {
+        $_POST = json_decode($requestBody, true) ?: [];
+    }
 }
 
 // Obtener la URI solicitada
@@ -47,7 +52,19 @@ if (count($segments) >= 2) {
     // Depuración - Registrar la solicitud
     error_log("Solicitud recibida: Proyecto=$projectName, Ruta=$route, Método={$_SERVER['REQUEST_METHOD']}");
 
-    $endpointFile = $apiDir . '/' . $projectName . '/' . $route . '.json';
+    // Construir nombres de archivo basados en método y ruta
+    $methodSpecificFile = $apiDir . '/' . $projectName . '/' . $route . '_' . $_SERVER['REQUEST_METHOD'] . '.json';
+    $genericFile = $apiDir . '/' . $projectName . '/' . $route . '.json';
+    
+    // Depuración - Registrar los archivos que se están buscando
+    error_log("Buscando archivos: Específico=$methodSpecificFile, Genérico=$genericFile");
+    
+    // Primero intentar con archivo específico del método
+    if (file_exists($methodSpecificFile)) {
+        $endpointFile = $methodSpecificFile;
+    } else {
+        $endpointFile = $genericFile;
+    }
 
     // Depuración - Verificar si el archivo existe
     error_log("Buscando archivo: $endpointFile, Existe: " . (file_exists($endpointFile) ? 'Sí' : 'No'));
@@ -62,14 +79,26 @@ if (count($segments) >= 2) {
         error_log("Método solicitado: $requestMethod, Método del endpoint: {$endpointData['method']}");
 
         if ($endpointData['method'] === $requestMethod || $requestMethod === 'OPTIONS') {
-            // === CACHÉ PARA MÉTODOS GET ===
-            if ($cacheEnabled && $requestMethod === 'GET') {
-                $cacheKey = md5($uri . serialize($_GET));
+            // Establecer el código de estado HTTP personalizado si está definido
+            if (isset($endpointData['status_code'])) {
+                $statusCode = $endpointData['status_code'];
+                http_response_code($statusCode);
+                
+                // Si es un código de error (>=400) y hay un mensaje de error personalizado, devolverlo
+                if ($statusCode >= 400 && isset($endpointData['error_message'])) {
+    header('Content-Type: application/json');
+    echo json_encode(['error' => $endpointData['error_message']]);
+    exit;
+}
+            }
+            // === CACHÉ PARA MÉTODOS POST ===
+            if ($cacheEnabled && $requestMethod === 'POST') {
+                $cacheKey = md5($uri . serialize($_POST));
                 $cacheFile = $cacheDir . '/' . $cacheKey;
 
                 // Verificar si existe caché válida
                 if (file_exists($cacheFile) && (time() - filemtime($cacheFile) < $cacheTTL)) {
-                    $contentType = isset($_GET['format']) ? getContentTypeForFormat($_GET['format']) : 'application/json';
+                    $contentType = isset($_POST['format']) ? getContentTypeForFormat($_POST['format']) : 'application/json';
                     header("Content-Type: $contentType");
                     header('X-API-Cache: HIT');
                     readfile($cacheFile);
@@ -85,8 +114,13 @@ if (count($segments) >= 2) {
             // Obtener el contenido del endpoint
             $content = $endpointData['content'];
             
-            // Verificar si hay una estructura anidada con content.content
-            if (isset($content['content'])) {
+            // Para solicitudes POST, asegurarse de devolver el contenido directamente sin procesamiento adicional
+            if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+                // Registrar el contenido para depuración
+                error_log("Contenido del endpoint POST: " . json_encode($content));
+            }
+            // Para otros métodos, verificar si hay una estructura anidada con content.content
+            else if (isset($content['content'])) {
                 // Si content.content es un array, usarlo directamente
                 if (is_array($content['content'])) {
                     $content = $content['content'];
@@ -100,7 +134,7 @@ if (count($segments) >= 2) {
             }
 
             // Verificar si se solicita información sobre la estructura
-            if (isset($_GET['_schema']) && $_GET['_schema'] === 'true') {
+            if (isset($_POST['_schema']) && $_POST['_schema'] === 'true') {
                 // Analizar la estructura del contenido para proporcionar información de filtrado
                 $schema = analyzeJsonStructure($content);
                 echo json_encode([
@@ -112,69 +146,32 @@ if (count($segments) >= 2) {
 
             // === MEJORA 1: FILTROS AVANZADOS ===
             // Verificar si hay parámetros de filtro
-            if (isset($_GET['filter']) && is_array($_GET['filter'])) {
-                $filters = $_GET['filter'];
-                $operators = isset($_GET['operator']) ? $_GET['operator'] : [];
+            if (isset($_POST['filter']) && is_array($_POST['filter'])) {
+                $filters = $_POST['filter'];
+                $operators = isset($_POST['operator']) ? $_POST['operator'] : [];
 
                 // Aplicar filtros al contenido
                 $content = applyFilters($content, $filters, $operators);
             }
             // Verificar si hay parámetros de consulta simples (ej: ?id=2 o ?nombre="Plátano" o ?user.username=breat_sk8)
-            else if (!empty($_GET)) {
+            else if (!empty($_POST) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
                 // Convertir parámetros simples al formato de filtro
                 $simpleFilters = [];
                 $simpleOperators = [];
 
-                // Primero, buscar parámetros con notación de punto en la URL original
-                $queryString = $_SERVER['QUERY_STRING'];
-                $dotParams = [];
-                
-                // Extraer parámetros con notación de punto de la URL original
-                if (preg_match_all('/([^&=]+\.[^&=]+)=([^&]*)/', $queryString, $matches, PREG_SET_ORDER)) {
-                    foreach ($matches as $match) {
-                        $dotParams[urldecode($match[1])] = urldecode($match[2]);
-                    }
-                }
-                
-                // Procesar todos los parámetros GET normales
-                foreach ($_GET as $field => $value) {
-                    // Ignorar parámetros especiales
-                    if (!in_array($field, ['_schema', 'page', 'limit', 'sort', 'direction', 'fields', 'search', 'search_fields', 'format'])) {
-                        // Registrar el parámetro para depuración
-                        error_log("Parámetro de filtro simple: $field = $value");
-                        // Decodificar el valor si está codificado en URL
-                        $decodedValue = urldecode($value);
-                        // Eliminar comillas si están presentes
-                        if (preg_match('/^"(.*)"$/', $decodedValue, $matches)) {
-                            $decodedValue = $matches[1];
-                        }
-                        $simpleFilters[$field] = $decodedValue;
-                    }
-                }
-                
-                // Añadir los parámetros con notación de punto
-                foreach ($dotParams as $field => $value) {
-                    // Ignorar parámetros especiales
-                    if (strpos($field, '.') !== false && !in_array($field, ['_schema', 'page', 'limit', 'sort', 'direction', 'fields', 'search', 'search_fields', 'format'])) {
-                        error_log("Parámetro con notación de punto: $field = $value");
-                        // Eliminar comillas si están presentes
-                        if (preg_match('/^"(.*)"$/', $value, $matches)) {
-                            $value = $matches[1];
-                        }
-                        $simpleFilters[$field] = $value;
-                    }
+                // Procesar parámetros POST directamente
+                foreach ($_POST as $key => $value) {
+                    $simpleFilters[$key] = $value;
                 }
 
-                if (!empty($simpleFilters)) {
-                    // Aplicar filtros simples al contenido
-                    $content = applyFilters($content, $simpleFilters, $simpleOperators);
-                }
+                // Aplicar filtros al contenido
+                $content = applyFilters($content, $simpleFilters, $simpleOperators);
             }
 
             // === MEJORA 2: BÚSQUEDA DE TEXTO ===
-            if (isset($_GET['search']) && isset($_GET['search_fields']) && is_array($content)) {
-                $searchTerm = $_GET['search'];
-                $searchFields = explode(',', $_GET['search_fields']);
+            if (isset($_POST['search']) && isset($_POST['search_fields']) && is_array($content)) {
+                $searchTerm = $_POST['search'];
+                $searchFields = explode(',', $_POST['search_fields']);
 
                 $searchResults = [];
                 foreach ($content as $item) {
@@ -189,9 +186,9 @@ if (count($segments) >= 2) {
             }
 
             // === MEJORA 3: ORDENAMIENTO ===
-            if (isset($_GET['sort']) && is_array($content) && !empty($content)) {
-                $sortField = $_GET['sort'];
-                $sortDirection = isset($_GET['direction']) && strtolower($_GET['direction']) === 'desc' ? SORT_DESC : SORT_ASC;
+            if (isset($_POST['sort']) && is_array($content) && !empty($content)) {
+                $sortField = $_POST['sort'];
+                $sortDirection = isset($_POST['direction']) && strtolower($_POST['direction']) === 'desc' ? SORT_DESC : SORT_ASC;
 
                 // Extraer la columna a ordenar
                 $column = array_column($content, $sortField);
@@ -204,9 +201,9 @@ if (count($segments) >= 2) {
             // === MEJORA 4: PAGINACIÓN ===
             $originalTotalItems = is_array($content) ? count($content) : 1;
 
-            if (isset($_GET['page']) && isset($_GET['limit']) && is_array($content)) {
-                $page = (int)$_GET['page'];
-                $limit = (int)$_GET['limit'];
+            if (isset($_POST['page']) && isset($_POST['limit']) && is_array($content)) {
+                $page = (int)$_POST['page'];
+                $limit = (int)$_POST['limit'];
                 $offset = ($page - 1) * $limit;
 
                 // Paginar los resultados
@@ -225,8 +222,8 @@ if (count($segments) >= 2) {
             }
 
             // === MEJORA 5: SELECCIÓN DE CAMPOS ===
-            if (isset($_GET['fields']) && is_array($content)) {
-                $fields = explode(',', $_GET['fields']);
+            if (isset($_POST['fields']) && is_array($content)) {
+                $fields = explode(',', $_POST['fields']);
 
                 // Si tenemos estructura con 'data', aplicar a ese nivel
                 if (isset($content['data']) && is_array($content['data'])) {
@@ -261,7 +258,7 @@ if (count($segments) >= 2) {
             }
 
             // === MEJORA 6: FORMATO DE SALIDA ===
-            $format = isset($_GET['format']) ? strtolower($_GET['format']) : 'json';
+            $format = isset($_POST['format']) ? strtolower($_POST['format']) : 'json';
 
             // Establecer encabezados según el formato
             $contentType = getContentTypeForFormat($format);
@@ -291,7 +288,7 @@ if (count($segments) >= 2) {
             }
 
             // === CACHÉ: GUARDAR RESULTADO ===
-            if ($cacheEnabled && $requestMethod === 'GET') {
+            if ($cacheEnabled && $requestMethod === 'POST') {
                 $output = ob_get_contents();
                 ob_end_flush();
                 file_put_contents($cacheFile, $output);
@@ -378,16 +375,16 @@ function getValueType($value) {
 function getNestedValue($item, $field) {
     // Registrar para depuración
     error_log("Buscando campo: $field en item: " . json_encode($item));
-    
+
     // Si el campo no contiene puntos, es un acceso directo
     if (strpos($field, '.') === false) {
         return isset($item[$field]) ? $item[$field] : null;
     }
-    
+
     // Si contiene puntos, navegar por la estructura anidada
     $parts = explode('.', $field);
     $current = $item;
-    
+
     foreach ($parts as $part) {
         if (!isset($current[$part])) {
             error_log("Parte no encontrada: $part en la ruta: $field");
@@ -395,7 +392,7 @@ function getNestedValue($item, $field) {
         }
         $current = $current[$part];
     }
-    
+
     error_log("Valor encontrado para $field: " . json_encode($current));
     return $current;
 }
@@ -406,11 +403,11 @@ function applyFilters($content, $filters, $operators = []) {
     if (!is_array($content)) {
         return $content;
     }
-    
+
     // Registrar para depuración
     error_log("Aplicando filtros: " . json_encode($filters));
     error_log("Estructura de contenido: " . json_encode(array_keys($content)));
-    
+
     // Si es un array asociativo (objeto) en lugar de una lista, convertirlo a lista
     if (!isset($content[0]) && count($content) > 0) {
         $content = [$content];
@@ -424,10 +421,10 @@ function applyFilters($content, $filters, $operators = []) {
         foreach ($filters as $field => $value) {
             // Obtener el operador, por defecto 'eq' (igual)
             $operator = isset($operators[$field]) ? $operators[$field] : 'eq';
-            
+
             // Obtener el valor del campo, soportando notación de punto para acceso anidado
             $fieldValue = getNestedValue($item, $field);
-            
+
             // Si el campo no existe en el item, no hay coincidencia
             if ($fieldValue === null) {
                 $matchesAllFilters = false;

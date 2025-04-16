@@ -2,6 +2,12 @@
  * Script para manejar la creación de endpoints y filtrado de datos
  */
 document.addEventListener('DOMContentLoaded', function() {
+    // Verificar si tenemos acceso al gestor de códigos de estado
+    if (!window.statusCodeManager) {
+        console.warn('El gestor de códigos de estado no está disponible');
+        // Crear una instancia temporal si no existe
+        window.statusCodeManager = new StatusCodeManager();
+    }
     // Referencias a elementos del DOM
     const projectNameInput = document.querySelector('input[placeholder="Nombre del Proyecto"]');
     const methodSelect = document.querySelector('.form-select');
@@ -56,9 +62,7 @@ document.addEventListener('DOMContentLoaded', function() {
             contentRequestDiv.querySelector('.col-xl-10').appendChild(alertDiv);
             
             // Eliminar después de 5 segundos
-            setTimeout(() => {
-                alertDiv.remove();
-            }, 5000);
+        
         } else {
             // Si no existe el contenedor, mostrar en consola
             console.error('Error: No se pudo mostrar el mensaje - Contenedor no encontrado');
@@ -99,13 +103,230 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
 
+    // Función para normalizar el nombre del proyecto (reemplazar espacios por guiones)
+    function normalizeProjectName(name) {
+        // Reemplazar espacios por guiones y eliminar caracteres especiales
+        return name.trim().replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+    }
+    
+    // Función para cargar y mostrar los endpoints existentes
+    function loadEndpoints(projectName) {
+        // Normalizar el nombre del proyecto (convertir espacios a guiones)
+        const normalizedProjectName = normalizeProjectName(projectName);
+        
+        fetch(`api/list-endpoints.php?project=${encodeURIComponent(normalizedProjectName)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.endpoints && Array.isArray(data.endpoints)) {
+                    displayEndpoints(data.endpoints, normalizedProjectName);
+                } else {
+                    showMessage(`No se encontraron endpoints para el proyecto "${projectName}" (${normalizedProjectName})`, true);
+                }
+            })
+            .catch(error => {
+                console.error('Error al cargar endpoints:', error);
+                showMessage('Error al cargar los endpoints', true);
+            });
+    }
+    
     // Las funciones setupFilterEvents, applyFilters y resetFilters han sido movidas
     // a la clase FilterManager para una mejor encapsulación y mantenimiento
+
+    // Función para mostrar los endpoints en la interfaz
+    function displayEndpoints(endpoints, projectName) {
+        const resultsContainer = document.getElementById('resultados-busqueda');
+        if (!resultsContainer) {
+            console.error('Contenedor de resultados no encontrado');
+            return;
+        }
+        
+        // Limpiar resultados anteriores
+        resultsContainer.innerHTML = '';
+        
+        // Si no hay endpoints, mostrar mensaje
+        if (endpoints.length === 0) {
+            resultsContainer.innerHTML = '<div class="alert alert-info">No se encontraron endpoints para este proyecto</div>';
+            return;
+        }
+        
+        // Crear tabla para mostrar los endpoints
+        const table = document.createElement('table');
+        table.className = 'table table-striped table-hover';
+        
+        // Crear encabezado de la tabla
+        const thead = document.createElement('thead');
+        thead.innerHTML = `
+            <tr>
+                <th>Ruta</th>
+                <th>Método</th>
+                <th>Código de Estado</th>
+                <th>Acciones</th>
+            </tr>
+        `;
+        table.appendChild(thead);
+        
+        // Crear cuerpo de la tabla
+        const tbody = document.createElement('tbody');
+        
+        // Agregar cada endpoint a la tabla
+        endpoints.forEach(endpoint => {
+            const tr = document.createElement('tr');
+            
+            // Celda para la ruta
+            const routeCell = document.createElement('td');
+            routeCell.textContent = endpoint.route;
+            tr.appendChild(routeCell);
+            
+            // Celda para el método
+            const methodCell = document.createElement('td');
+            const methodBadge = document.createElement('span');
+            methodBadge.className = 'badge ' + getMethodBadgeClass(endpoint.method);
+            methodBadge.textContent = endpoint.method;
+            methodCell.appendChild(methodBadge);
+            tr.appendChild(methodCell);
+            
+            // Celda para el código de estado
+            const statusCodeCell = document.createElement('td');
+            const statusCode = endpoint.status_code || 200;
+            
+            // Crear selector de código de estado
+            const statusCodeSelector = window.statusCodeManager.createStatusCodeSelector(statusCode, (newStatusCode, errorMessage) => {
+                // Obtener el texto descriptivo del código de estado
+                const statusText = window.statusCodeManager.getStatusCodeText(newStatusCode);
+                
+                window.statusCodeManager.updateEndpointStatusCode(projectName, endpoint.route, newStatusCode, errorMessage)
+                .then(() => {
+                    console.log('Código de estado actualizado:', statusCode);
+                    // Mostrar mensaje diferente según si es un código de error o no
+                    if (newStatusCode >= 400) {
+                        const errorMsg = errorMessage ? `: "${errorMessage}"` : '';
+                        showMessage(`Código de estado actualizado a ${newStatusCode} (${statusText})${errorMsg}`, false);
+                    } else {
+                        showMessage(`Código de estado actualizado a ${newStatusCode} (${statusText})`, false);
+                    }
+                    
+                    // Limpiar mensajes y recargar endpoints después de un breve retraso
+                
+                     $("#searchProjectEndpoints").click();
+                
+                })
+                .catch(error => showMessage(error.message, true));
+            });
+            
+            statusCodeCell.appendChild(statusCodeSelector);
+            tr.appendChild(statusCodeCell);
+            
+            // Celda para acciones
+            const actionsCell = document.createElement('td');
+            
+            // Botón para copiar URL
+            const copyButton = document.createElement('button');
+            copyButton.className = 'btn btn-sm btn-outline-secondary me-1';
+            copyButton.innerHTML = '<i class="bi bi-clipboard"></i>';
+            copyButton.title = 'Copiar URL';
+            copyButton.onclick = () => {
+                const baseUrl = window.location.origin;
+                const url = `${baseUrl}/${projectName}/${endpoint.route}`;
+                navigator.clipboard.writeText(url)
+                    .then(() => {
+                        copyButton.className = 'btn btn-sm btn-success me-1';
+                        setTimeout(() => {
+                            copyButton.className = 'btn btn-sm btn-outline-secondary me-1';
+                        }, 2000);
+                    })
+                    .catch(err => {
+                        console.error('Error al copiar URL:', err);
+                    });
+            };
+            actionsCell.appendChild(copyButton);
+            
+            tr.appendChild(actionsCell);
+            tbody.appendChild(tr);
+        });
+        
+        table.appendChild(tbody);
+        resultsContainer.appendChild(table);
+    }
+
+    // Función para obtener la clase de badge según el método HTTP
+    function getMethodBadgeClass(method) {
+        switch (method.toUpperCase()) {
+            case 'GET':
+                return 'bg-success';
+            case 'POST':
+                return 'bg-primary';
+            case 'PUT':
+                return 'bg-warning';
+            case 'DELETE':
+                return 'bg-danger';
+            default:
+                return 'bg-secondary';
+        }
+    }
+
+    // Función para actualizar el código de estado de un endpoint
+    function updateEndpointStatusCode(projectName, route, statusCode, errorMessage) {
+        // Obtener el texto descriptivo del código de estado
+        const statusText = window.statusCodeManager.getStatusCodeText(statusCode);
+        
+        window.statusCodeManager.updateEndpointStatusCode(projectName, route, statusCode, errorMessage)
+            .then(data => {
+                // Mostrar mensaje diferente según si es un código de error o no
+                if (statusCode >= 400) {
+                    const errorMsg = errorMessage ? `: "${errorMessage}"` : '';
+                    Swal.fire({
+                        title: 'Código de estado actualizado',
+                        text: `Código de estado actualizado a ${statusCode} (${statusText})`,
+                        icon: statusCode >= 400 ? 'error' : 'success'
+                      });
+                } else {
+                    Swal.fire({
+                      title: 'Código de estado actualizado',
+                      text: `Código de estado actualizado a ${statusCode} (${statusText})`,
+                      icon: statusCode >= 400 ? 'error' : 'success'
+                    });
+                }
+                
+                // Limpiar mensajes y recargar endpoints después de un breve retraso
+                setTimeout(() => {
+                    // Limpiar completamente el contenedor de mensajes
+                    const messageContainer = document.querySelector('#contenido-request .col-xl-10');
+                    if (messageContainer) {
+                        messageContainer.innerHTML = '';
+                    }
+                    
+                    // Recargar la lista de endpoints
+                    loadEndpoints(projectName);
+                    
+                    // Forzar la actualización de la interfaz para mostrar la lista de endpoints
+                    const resultsContainer = document.getElementById('resultados-busqueda');
+                    if (resultsContainer) {
+                        // Hacer scroll a la sección de resultados para que sea visible
+                        resultsContainer.scrollIntoView({ behavior: 'smooth' });
+                    }
+                    
+                    // Forzar la búsqueda de endpoints para asegurar que se muestre la lista actualizada
+                    if (projectNameInput && projectNameInput.value.trim() === projectName) {
+                        // Usar la función de búsqueda directamente en lugar de simular un clic
+                        const searchButton = document.getElementById('searchProjectEndpoints');
+                        if (searchButton && typeof searchButton.onclick === 'function') {
+                            searchButton.onclick();
+                        }
+                    }
+                }, 1500); // Tiempo suficiente para que el usuario pueda leer el mensaje
+            })
+            .catch(error => {
+                console.error('Error al actualizar código de estado:', error);
+                showMessage(`Error al actualizar el código de estado: ${error.message}`, true);
+            });}
+    
     
     // Función para publicar el endpoint
     function publishEndpoint() {
         // Obtener valores del formulario
         const projectName = projectNameInput.value.trim();
+        // Normalizar el nombre del proyecto (convertir espacios a guiones)
+        const normalizedProjectName = normalizeProjectName(projectName);
         const method = methodSelect.value;
         const route = routeInput.value.trim();
         const content = getJsonContent();
@@ -128,7 +349,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Preparar datos para enviar
         const requestData = {
-            projectName: projectName,
+            projectName: normalizedProjectName,
             route: route,
             method: method,
             content: content

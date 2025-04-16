@@ -98,35 +98,28 @@ document.addEventListener('DOMContentLoaded', function() {
             indentUnit: 2,
             smartIndent: true,
             indentWithTabs: false,
-            lint: {
-                getAnnotations: function(content) {
-                    try {
-                        JSON.parse(content);
-                        return [];
-                    } catch (e) {
-                        return [{
-                            message: e.message,
-                            severity: 'error',
-                            from: CodeMirror.Pos(0, 0),
-                            to: CodeMirror.Pos(0, content.length)
-                        }];
-                    }
-                }
-            },
+            lint: true,
             electricChars: true,
             styleActiveLine: true,
             autoCloseTags: true,
             highlightSelectionMatches: {showToken: /\w/, annotateScrollbar: true},
             lint: {
                 getAnnotations: function(text, updateLinting, options, cm) {
+                    if (!cm) return;
                     try {
                         if (!text.trim()) return [];
                         JSON.parse(text);
                         updateLinting([]);
                     } catch (e) {
+                        let pos = 0;
+                        try {
+                            pos = e.at - 1;
+                        } catch (posError) {
+                            pos = text.length;
+                        }
                         updateLinting([{
-                            from: cm.posFromIndex(e.at - 1),
-                            to: cm.posFromIndex(e.at),
+                            from: cm.posFromIndex(Math.max(0, pos)),
+                            to: cm.posFromIndex(Math.min(text.length, pos + 1)),
                             message: e.message,
                             severity: 'error'
                         }]);

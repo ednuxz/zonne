@@ -9,9 +9,16 @@ if (count($segments) >= 2) {
     $projectName = $segments[0];
     $route = $segments[1];
     $apiDir = __DIR__ . '/api';
-    $endpointFile = $apiDir . '/' . $projectName . '/' . $route . '.json';
+    $method = $_SERVER['REQUEST_METHOD'];
     
-    if (file_exists($endpointFile)) {
+    // Verificar primero si existe un archivo específico para el método (ruta_MÉTODO.json)
+    $methodSpecificFile = $apiDir . '/' . $projectName . '/' . $route . '_' . $method . '.json';
+    $genericFile = $apiDir . '/' . $projectName . '/' . $route . '.json';
+    
+    // Registrar para depuración
+    error_log("Buscando archivos: Específico=$methodSpecificFile, Genérico=$genericFile");
+    
+    if (file_exists($methodSpecificFile) || file_exists($genericFile)) {
         // Es una solicitud de API, incluir el router
         include 'router.php';
         exit;
@@ -44,6 +51,7 @@ if ($uri !== '/' && $uri !== '') {
     </script>
     <link rel="stylesheet" href="assets/bootstrap/css/bootstrap.min.css">
     <link rel="stylesheet" href="assets/css/Navbar-With-Button-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
@@ -246,6 +254,7 @@ if ($uri !== '/' && $uri !== '') {
     <script src="assets/js/form-validator.js"></script>
     <script src="assets/js/clipboard.js"></script>
     <script src="assets/js/filter-manager.js"></script>
+    <script src="assets/js/status-code-manager.js"></script>
     <script src="assets/js/endpoint-manager.js"></script>
     <script src="assets/js/project-search.js"></script>
 </body>

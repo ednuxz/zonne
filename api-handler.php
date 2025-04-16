@@ -32,8 +32,8 @@ function createEndpoint($projectName, $route, $method, $content) {
         mkdir($projectDir, 0777, true);
     }
     
-    // Crear archivo para el endpoint
-    $endpointFile = $projectDir . '/' . $route . '.json';
+    // Crear archivo para el endpoint con nombre específico para el método HTTP
+    $endpointFile = $projectDir . '/' . $route . '_' . $method . '.json';
     $endpointData = [
         'method' => $method,
         'content' => json_decode($content, true),
@@ -69,6 +69,85 @@ function getBaseUrl() {
     return "$protocol://$host";
 }
 
+// Función para actualizar el código de estado HTTP de un endpoint
+function updateEndpointStatusCode($projectName, $route, $statusCode, $errorMessage = null) {
+    global $apiDir;
+    
+    // Sanitizar nombres de proyecto y ruta
+    $projectName = preg_replace('/[^a-z0-9\-]/', '', strtolower(str_replace(' ', '-', $projectName)));
+    $route = preg_replace('/[^a-z0-9\-]/', '', strtolower($route));
+    
+    // Validar que tengamos datos válidos
+    if (empty($projectName) || empty($route) || empty($statusCode)) {
+        return ['success' => false, 'message' => 'Faltan datos requeridos'];
+    }
+    
+    // Verificar que el código de estado sea un número válido
+    if (!is_numeric($statusCode) || $statusCode < 100 || $statusCode > 599) {
+        return ['success' => false, 'message' => 'Código de estado HTTP inválido'];
+    }
+    
+    // Verificar que exista el directorio del proyecto
+    $projectDir = $apiDir . '/' . $projectName;
+    if (!file_exists($projectDir) || !is_dir($projectDir)) {
+        return ['success' => false, 'message' => 'El proyecto no existe'];
+    }
+    
+    // Verificar que exista el archivo del endpoint (buscar archivos para todos los métodos)
+    $methodSpecificFiles = glob($projectDir . '/' . $route . '_*.json');
+    if (empty($methodSpecificFiles)) {
+        // Intentar con el archivo genérico si no existe ningún archivo específico
+        $endpointFile = $projectDir . '/' . $route . '.json';
+        if (!file_exists($endpointFile)) {
+            return ['success' => false, 'message' => 'El endpoint no existe'];
+        }
+    } else {
+        // Usar el primer archivo encontrado
+        $endpointFile = $methodSpecificFiles[0];
+    }
+    
+    // Leer el archivo actual
+    $endpointData = json_decode(file_get_contents($endpointFile), true);
+    if (!$endpointData) {
+        return ['success' => false, 'message' => 'Error al leer el endpoint'];
+    }
+    
+    // Actualizar el código de estado
+    $endpointData['status_code'] = (int)$statusCode;
+    
+    // Si se proporciona un mensaje de error personalizado y es un código de error (>=400)
+    if (!empty($errorMessage) && $statusCode >= 400) {
+        try {
+            // Intentar decodificar el mensaje para verificar que sea JSON válido
+            $jsonMessage = json_decode($errorMessage, true);
+            if ($jsonMessage !== null) {
+                $endpointData['error_message'] = $jsonMessage;
+            } else {
+                // Si no es JSON válido, intentar crear un objeto JSON simple
+                $endpointData['error_message'] = ['message' => $errorMessage];
+            }
+        } catch (Exception $e) {
+            // En caso de error, usar un mensaje simple
+            $endpointData['error_message'] = ['message' => $errorMessage];
+        }
+    } else if ($statusCode < 400) {
+        // Si es un código de éxito, eliminar cualquier mensaje de error anterior
+        unset($endpointData['error_message']);
+    }
+    
+    // Guardar el archivo actualizado
+    if (file_put_contents($endpointFile, json_encode($endpointData, JSON_PRETTY_PRINT))) {
+        return [
+            'success' => true, 
+            'message' => 'Código de estado actualizado correctamente',
+            'status_code' => $statusCode,
+            'error_message' => $endpointData['error_message'] ?? null
+        ];
+    } else {
+        return ['success' => false, 'message' => 'Error al actualizar el endpoint'];
+    }
+}
+
 // Procesar la solicitud según el método HTTP
 $requestMethod = $_SERVER['REQUEST_METHOD'];
 
@@ -92,6 +171,25 @@ switch ($requestMethod) {
         echo json_encode($result);
         break;
         
+    case 'PUT':
+        // Actualizar el código de estado de un endpoint
+        $data = json_decode(file_get_contents('php://input'), true);
+        
+        if (!$data) {
+            echo json_encode(['success' => false, 'message' => 'Datos inválidos']);
+            exit;
+        }
+        
+        $result = updateEndpointStatusCode(
+            $data['projectName'] ?? '', 
+            $data['route'] ?? '', 
+            $data['statusCode'] ?? 200,
+            $data['errorMessage'] ?? null
+        );
+        
+        echo json_encode($result);
+        break;
+        
     case 'GET':
         // Verificar si estamos consultando un endpoint específico
         $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
@@ -102,7 +200,16 @@ switch ($requestMethod) {
             $projectName = $segments[0];
             $route = $segments[1];
             
-            $endpointFile = $apiDir . '/' . $projectName . '/' . $route . '.json';
+            // Primero intentar con archivo específico del método
+            $methodSpecificFile = $apiDir . '/' . $projectName . '/' . $route . '_GET.json';
+            $genericFile = $apiDir . '/' . $projectName . '/' . $route . '.json';
+            
+            // Verificar primero el archivo específico del método
+            if (file_exists($methodSpecificFile)) {
+                $endpointFile = $methodSpecificFile;
+            } else {
+                $endpointFile = $genericFile;
+            }
             
             if (file_exists($endpointFile)) {
                 $endpointData = json_decode(file_get_contents($endpointFile), true);

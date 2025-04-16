@@ -18,5 +18,9 @@ function copyToClipboard() {
     document.body.removeChild(tempElement);
     
     // Opcional: Mostrar una notificación de éxito
-    alert('URL copiada al portapapeles: ' + textToCopy);
+    Swal.fire({
+      title: 'URL copiada al portapapeles',
+      text: textToCopy,
+      icon: 'success'
+    });
 }
