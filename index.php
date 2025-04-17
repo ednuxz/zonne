@@ -22,6 +22,12 @@ if (count($segments) >= 2) {
         // Es una solicitud de API, incluir el router
         include 'router.php';
         exit;
+    } else if ($method !== 'GET') {
+        // Si es un método distinto a GET y no existe el endpoint, devolver un error JSON
+        header('Content-Type: application/json');
+        http_response_code(404);
+        echo json_encode(['error' => 'Endpoint no encontrado', 'project' => $projectName, 'route' => $route]);
+        exit;
     }
 }
 
@@ -32,6 +38,7 @@ if ($uri !== '/' && $uri !== '') {
 }
 ?>
 <!DOCTYPE html>
+<!-- Resto del código HTML -->
 <html data-bs-theme="light" lang="en">
 
 <head>

@@ -36,7 +36,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Crear título
         const titleElement = document.createElement('h4');
-        titleElement.textContent = `Endpoints del proyecto "${projectName}"`;
+        titleElement.textContent = `Endpoints del proyecto "${projectName.replace(/-/g, ' ')}"`;
         titleElement.className = 'mb-3';
         
         // Crear tabla para mostrar los endpoints
@@ -95,7 +95,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const deleteButton = document.createElement('button');
                 deleteButton.className = 'btn btn-sm btn-danger';
                 deleteButton.textContent = 'Borrar';
-                deleteButton.addEventListener('click', () => deleteEndpoint(projectName, endpoint.route));
+                deleteButton.addEventListener('click', () => deleteEndpoint(projectName, endpoint.route, endpoint.method));
                 
                 // Selector de código de estado HTTP
                 const statusCodeContainer = document.createElement('div');
@@ -435,7 +435,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Función para eliminar un endpoint
-    function deleteEndpoint(projectName, route) {
+    function deleteEndpoint(projectName, route, method) {
         // Mostrar confirmación antes de eliminar
         if (!confirm(`¿Está seguro que desea eliminar el endpoint ${route} del proyecto ${projectName}?`)) {
             return;
@@ -446,7 +446,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Realizar petición DELETE para eliminar el endpoint
         // El projectName ya viene normalizado de la función searchEndpoints
-        fetch(`/api/delete-endpoint.php?project=${encodeURIComponent(projectName)}&route=${encodeURIComponent(route)}`, {
+        fetch(`/api/delete-endpoint.php?project=${encodeURIComponent(projectName)}&route=${encodeURIComponent(route)}&method=${encodeURIComponent(method)}`, {
             method: 'DELETE'
         })
         .then(response => {
@@ -471,25 +471,46 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Función para actualizar el código de estado HTTP de un endpoint
-    function updateEndpointStatusCode(projectName, route, statusCode) {
+    function updateEndpointStatusCode(projectName, route, statusCode, errorMessage = null) {
+        // Comprobar si es un código de error (4xx o 5xx)
+        const isErrorCode = statusCode >= 400;
+        
+        // Si es un código de error, solicitar mensaje personalizado si no se proporcionó
+        if (isErrorCode && errorMessage === null) {
+            // Obtener el mensaje del input de texto en el selector de código
+            const jsonInput = document.getElementById('jsonInputCodeResponse');
+            if (jsonInput && jsonInput.value.trim() !== '') {
+                errorMessage = jsonInput.value.trim();
+            }
+        }
+        
         // Mostrar indicador de carga
         showMessage(`Actualizando código de estado a ${statusCode}...`);
         
         // Llamar al método del StatusCodeManager para actualizar el código
-        window.statusCodeManager.updateEndpointStatusCode(projectName, route, statusCode)
+        window.statusCodeManager.updateEndpointStatusCode(projectName, route, statusCode, errorMessage)
             .then(data => {
+                // Mensaje de éxito con SweetAlert2
+                let mensaje = `El código de estado del endpoint ${route} ha sido actualizado a ${statusCode} (${window.statusCodeManager.getStatusCodeText(statusCode)})`;
+                
+                // Si hay un mensaje de error personalizado, mostrarlo
+                if (data.error_message) {
+                    mensaje += `<br><br><strong>Mensaje personalizado:</strong> <pre style="text-align: left; margin-top: 10px;">${JSON.stringify(data.error_message, null, 2)}</pre>`;
+                }
+                
                 swal.fire({
                     title: 'Código de estado actualizado',
-                    text: `El código de estado del endpoint ${route} ha sido actualizado a ${statusCode} (${window.statusCodeManager.getStatusCodeText(statusCode)})`,
-                    icon: 'success', 
+                    html: mensaje,
+                    icon: 'success',
                 })
-                $('#searchProjectEndpoints').click(); // Volver a cargar la lista de endpoints
+                
+                // Volver a cargar la lista de endpoints
+                $('#searchProjectEndpoints').click();
             })
             .catch(error => {
                 console.error('Error:', error);
                 showMessage(`Error al actualizar el código de estado: ${error.message}`, true);
             });
-
     }
     
     // Función para normalizar el nombre del proyecto (reemplazar espacios por guiones)
@@ -545,4 +566,161 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+});
+
+/**
+ * Script para manejar los códigos de estado HTTP de los endpoints
+ */
+class StatusCodeManager {
+    constructor() {
+        // Lista de códigos HTTP comunes para mostrar en el selector
+        this.httpCodes = [
+            { code: 200, text: "OK", description: "Solicitud exitosa" },
+            { code: 201, text: "Created", description: "Recurso creado correctamente" },
+            { code: 204, text: "No Content", description: "Solicitud exitosa, sin contenido para devolver" },
+            { code: 400, text: "Bad Request", description: "Solicitud incorrecta" },
+            { code: 401, text: "Unauthorized", description: "Autenticación requerida" },
+            { code: 403, text: "Forbidden", description: "Acceso prohibido" },
+            { code: 404, text: "Not Found", description: "Recurso no encontrado" },
+            { code: 405, text: "Method Not Allowed", description: "Método no permitido" },
+            { code: 500, text: "Internal Server Error", description: "Error interno del servidor" },
+            { code: 503, text: "Service Unavailable", description: "Servicio no disponible" }
+        ];
+    }
+
+    /**
+     * Crea un selector de códigos HTTP
+     * @param {number} currentCode - Código HTTP actual
+     * @param {Function} onChange - Función a ejecutar cuando cambia el selector
+     * @returns {HTMLElement} - Elemento select con los códigos HTTP
+     */
+    createStatusCodeSelector(currentCode = 200, onChange = null) {
+        const container = document.createElement('div');
+        container.className = 'd-flex align-items-center gap-2 flex-wrap';
+        
+        const select = document.createElement('select');
+        select.className = 'form-select form-select-sm status-code-selector';
+        select.style.width = 'auto';
+        select.title = 'Código de estado HTTP';
+        
+        // Agregar opciones al selector
+        this.httpCodes.forEach(code => {
+            const option = document.createElement('option');
+            option.value = code.code;
+            option.textContent = `${code.code} - ${code.text}`;
+            option.title = code.description;
+            if (code.code === currentCode) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+        
+        // Crear campo de texto para mensaje JSON personalizado
+        const jsonInputWrapper = document.createElement('div');
+        jsonInputWrapper.className = 'mt-1 w-100';
+        jsonInputWrapper.style.display = parseInt(select.value) >= 400 ? 'block' : 'none';
+        
+        const jsonInput = document.createElement('input');
+        jsonInput.type = 'text';
+        jsonInput.className = 'form-control form-control-sm';
+        jsonInput.placeholder = 'Mensaje JSON para código de error (ej: {"error":"Acceso denegado"})';
+        jsonInput.title = 'Ingrese un mensaje JSON personalizado para este código de error';
+        jsonInput.id = 'jsonInputCodeResponse';
+        
+        // Botón para aplicar el cambio
+        const applyButton = document.createElement('button');
+        applyButton.className = 'btn btn-sm btn-primary mt-1';
+        applyButton.textContent = 'Aplicar';
+        applyButton.style.display = 'none';
+        
+        jsonInputWrapper.appendChild(jsonInput);
+        jsonInputWrapper.appendChild(applyButton);
+        
+        // Agregar evento de cambio si se proporciona una función
+        if (onChange && typeof onChange === 'function') {
+            select.addEventListener('change', (e) => {
+                const code = parseInt(e.target.value);
+                jsonInputWrapper.style.display = code >= 400 ? 'block' : 'none';
+                applyButton.style.display = 'none';
+                
+                // Si no es un código de error, aplicar cambio inmediatamente
+                if (code < 400) {
+                    onChange(code, null);
+                }
+            });
+            
+            jsonInput.addEventListener('input', () => {
+                // Mostrar el botón de aplicar cuando se escribe algo
+                applyButton.style.display = 'inline-block';
+            });
+            
+            applyButton.addEventListener('click', () => {
+                const code = parseInt(select.value);
+                onChange(code, jsonInput.value);
+            });
+        }
+        
+        container.appendChild(select);
+        container.appendChild(jsonInputWrapper);
+        
+        return container;
+    }
+
+    /**
+     * Actualiza el código de estado HTTP de un endpoint
+     * @param {string} projectName - Nombre del proyecto
+     * @param {string} route - Ruta del endpoint
+     * @param {number} statusCode - Nuevo código de estado HTTP
+     * @param {string} errorMessage - Mensaje de error personalizado (opcional)
+     * @returns {Promise} - Promesa que se resuelve cuando se actualiza el código
+     */
+    updateEndpointStatusCode(projectName, route, statusCode, errorMessage = null) {
+        // Validar y formatear el mensaje de error si existe
+        let formattedErrorMessage = null;
+        if (errorMessage) {
+            try {
+                // Intentar parsear como JSON
+                formattedErrorMessage = JSON.parse(errorMessage);
+            } catch (e) {
+                // Si no es JSON válido, crear un objeto simple
+                formattedErrorMessage = { "message": errorMessage };
+            }
+        }
+        
+        return fetch('api-handler.php', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                projectName: projectName,
+                route: route,
+                statusCode: statusCode,
+                errorMessage: formattedErrorMessage ? JSON.stringify(formattedErrorMessage) : null
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                throw new Error(data.message || 'Error al actualizar el código de estado');
+            }
+            return data;
+        });
+    }
+
+    /**
+     * Obtiene el texto descriptivo de un código HTTP
+     * @param {number} code - Código HTTP
+     * @returns {string} - Texto descriptivo del código
+     */
+    getStatusCodeText(code) {
+        const httpCode = this.httpCodes.find(item => item.code === parseInt(code));
+        return httpCode ? httpCode.text : 'Unknown';
+    }
+}
+
+// Inicializar el gestor de códigos de estado cuando el DOM esté listo
+document.addEventListener('DOMContentLoaded', function() {
+    // Crear una instancia global del gestor de códigos de estado
+    window.statusCodeManager = new StatusCodeManager();
 });
